@@ -9,6 +9,15 @@ type ApiResponse = {
   error?: string;
 };
 
+class BucketError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
 const CORS_HEADERS = {
   "Content-Type": "application/json",
   "Access-Control-Allow-Origin": "*",
@@ -34,6 +43,7 @@ const ALLOWED_EXTENSIONS = [
   "heic",
 ];
 
+// Respond with the CORS headers for the options query
 export async function OPTIONS(request: NextRequest) {
   return new Response(null, {
     headers: CORS_HEADERS,
@@ -41,60 +51,85 @@ export async function OPTIONS(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const bucket = getRequestContext().env.IMAGES;
-  const R2_DOMAIN = getRequestContext().env.R2_DOMAIN || "files2.iqun.xyz";
-  // Bucket must exist
-  if (!bucket || !R2_DOMAIN) {
+  try {
+    return ProcessRequest(request);
+  } catch (error) {
+    let status = 500;
+    let errorMsg = "Unknown error occured";
+    if (error instanceof BucketError) {
+      errorMsg = error.message;
+      status = error.status;
+    } else if (error instanceof Error) {
+      errorMsg = error.message;
+    }
     return new Response(
       JSON.stringify({
-        error:
-          "Missing required environment varibles, please set in wrangler.json or on your dashboard",
+        error: errorMsg,
       }),
-      {
-        status: 500,
-        headers: CORS_HEADERS,
-      }
+      { status: status, headers: CORS_HEADERS }
     );
   }
+}
+
+export async function ProcessRequest(request: NextRequest) {
+  const bucket = getRequestContext().env.IMAGES;
+  const R2_DOMAIN = getRequestContext().env.R2_DOMAIN;
+
+  // Bucket must exist
+  if (!bucket || !R2_DOMAIN) {
+    throw new BucketError(
+      500,
+      "Missing required environment varibles, please set in wrangler.json or on your dashboard"
+    );
+  }
+
   const searchParams = request.nextUrl.searchParams;
   const fileName = searchParams.get("fileName");
   const fileType = searchParams.get("fileType");
 
   // Require all params
   if (!fileName || !fileType) {
-    return new Response(
-      JSON.stringify({
-        error: "Missing required parameters: fileName, fileType are required",
-      }),
-      { status: 400, headers: CORS_HEADERS }
+    throw new BucketError(
+      400,
+      "Missing required parameters: fileName, fileType are required"
     );
+  }
+
+  // Validate that file type in headers is correct
+  if (
+    ["multipart/form-data", "application/x-www-form-urlencoded"].includes(
+      request.headers.get("content-type") || "None"
+    )
+  ) {
+    throw new BucketError(400, "No body data");
+  }
+
+  // Get file from form for validation and use
+  const formData = await request.formData();
+  const file = formData.get("file") as File;
+  if (!file) {
+    throw new BucketError(400, "No Body data or no file");
   }
 
   // Verify file name is safe and has a valid extension
   const fileExt = fileName.split(".").pop();
-  if (!fileExt || !ALLOWED_EXTENSIONS.includes(fileExt)) {
-    return new Response(
-      JSON.stringify({
-        error:
-          "File name must have a valid extension, currently this API only supports images",
-      }),
-      { status: 400, headers: CORS_HEADERS }
+  if (
+    !fileExt ||
+    !ALLOWED_EXTENSIONS.includes(fileExt) ||
+    !ALLOWED_EXTENSIONS.includes(file.type)
+  ) {
+    throw new BucketError(
+      400,
+      "File name must have a valid extension, currently this API only supports images"
     );
-    type ApiResponse = {
-      url?: string;
-      imageUrl?: string;
-      error?: string;
-    };
   }
 
   // Verify file extension matches sent file type in header
   const mimeType = mime.getType(fileExt);
   if (mimeType !== fileType) {
-    return new Response(
-      JSON.stringify({
-        error: "File type does not match file extension sent in header",
-      }),
-      { status: 400, headers: CORS_HEADERS }
+    throw new BucketError(
+      400,
+      "File type does not match file extension sent in header"
     );
   }
 
@@ -102,45 +137,21 @@ export async function POST(request: NextRequest) {
   const contentLength = request.headers.get("content-length");
   const MAX_SIZE = 20 * 1024 * 1024; // TODO: Make this an env variable
   if (!contentLength || Number(contentLength) > MAX_SIZE) {
-    return new Response(
-      JSON.stringify({
-        error: "File size must be less than 20mb",
-      }),
-      { status: 400, headers: CORS_HEADERS }
-    );
+    throw new BucketError(400, "File size must be less than 20mb");
   }
 
-  // Upload file
+  // Generate file key
+  const uploadKey = `${crypto.randomUUID().slice(0, 8)}/${fileName}`;
   const resp: ApiResponse = {
-    imageUrl: `https://${R2_DOMAIN}/${fileName}`,
+    imageUrl: `https://${R2_DOMAIN}/${uploadKey}`,
     error: "",
   };
-  try {
-    // If this got used earlier in the code I want it to throw an error
-    if (request.bodyUsed) {
-      throw new Error("formData already used");
-    }
 
-    // This is the best way I found to handle the file op
-    // Will break for larger files and require a refactor
-    const formData = await request.formData();
-    const file = formData.get("file");
-    if (!file) {
-      return new Response(JSON.stringify("Bad Request"), {
-        status: 400,
-        headers: CORS_HEADERS,
-      });
-    }
+  // Finally, put the validated file
+  await bucket.put(uploadKey, file);
 
-    await bucket.put(fileName, file);
-  } catch (error) {
-    if (error instanceof Error) {
-      console.error(error.name, error.message);
-      resp.error = `Bucket Error: ${error.message}`;
-    }
-  }
   return new Response(JSON.stringify(resp), {
-    status: resp.error !== "" ? 200 : 500,
+    status: 200,
     headers: CORS_HEADERS,
   });
 }
