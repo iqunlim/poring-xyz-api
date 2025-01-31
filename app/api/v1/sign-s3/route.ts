@@ -52,7 +52,8 @@ export async function OPTIONS(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    return ProcessRequest(request);
+    const res = await ProcessRequest(request);
+    return res;
   } catch (error) {
     let status = 500;
     let errorMsg = "Unknown error occured";
@@ -71,9 +72,10 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function ProcessRequest(request: NextRequest) {
-  const bucket = getRequestContext().env.IMAGES;
-  const R2_DOMAIN = getRequestContext().env.R2_DOMAIN;
+async function ProcessRequest(request: NextRequest) {
+  const bucket = getRequestContext().env.IMAGES || "Test";
+  const R2_DOMAIN =
+    getRequestContext().env.R2_DOMAIN || "https://files2.iqun.xyz/";
 
   // Bucket must exist
   if (!bucket || !R2_DOMAIN) {
@@ -113,10 +115,12 @@ export async function ProcessRequest(request: NextRequest) {
 
   // Verify file name is safe and has a valid extension
   const fileExt = fileName.split(".").pop();
+  const fileBlobExt = mime.getExtension(file.type);
   if (
     !fileExt ||
-    !ALLOWED_EXTENSIONS.includes(fileExt) ||
-    !ALLOWED_EXTENSIONS.includes(file.type)
+    !fileBlobExt ||
+    !(fileExt === fileBlobExt) ||
+    !ALLOWED_EXTENSIONS.includes(fileBlobExt)
   ) {
     throw new BucketError(
       400,
