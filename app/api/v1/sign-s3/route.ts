@@ -1,18 +1,26 @@
-import { getRequestContext } from "@cloudflare/next-on-pages";
-
 export const runtime = "edge";
 
+import { getRequestContext } from "@cloudflare/next-on-pages";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-
 import { NextRequest } from "next/server";
 
-export async function GET(request: NextRequest) {
-  const bucket = getRequestContext().env.R2_BUCKET_NAME;
-  return new Response(bucket);
-}
+type ApiResponse = {
+  url?: string;
+  imageUrl?: string;
+  error?: string;
+};
 
-export async function POST(request: NextRequest) {
+const checkDefined = (...vars: string[]) => vars.every((v) => v !== undefined);
+
+const CORS_HEADERS = {
+  "Content-Type": "application/json",
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+export async function GET(request: NextRequest) {
   try {
     const {
       R2_ACCESS_KEY_ID,
@@ -22,6 +30,22 @@ export async function POST(request: NextRequest) {
       R2_DOMAIN,
     } = getRequestContext().env;
 
+    // All of these are required
+    if (
+      !checkDefined(
+        R2_ACCESS_KEY_ID,
+        R2_SECRET_ACCESS_KEY,
+        R2_BUCKET_NAME,
+        R2_ACCOUNT_ID,
+        R2_DOMAIN
+      )
+    ) {
+      return new Response(
+        JSON.stringify({ error: "Missing environment variables" }),
+        { status: 500, headers: CORS_HEADERS }
+      );
+    }
+
     const S3 = new S3Client({
       region: "auto",
       endpoint: `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
@@ -30,28 +54,7 @@ export async function POST(request: NextRequest) {
         secretAccessKey: R2_SECRET_ACCESS_KEY,
       },
     });
-    if (R2_ACCOUNT_ID === undefined) {
-      return new Response("R2_ACCOUNT_ID is not defined", { status: 500 });
-    }
 
-    if (R2_ACCESS_KEY_ID === undefined) {
-      return new Response("R2_ACCESS_KEY_ID is not defined", { status: 500 });
-    }
-
-    if (R2_SECRET_ACCESS_KEY === undefined) {
-      return new Response("R2_SECRET_ACCESS_KEY is not defined", {
-        status: 500,
-      });
-    }
-
-    if (R2_BUCKET_NAME === undefined) {
-      return new Response("R2_BUCKET_NAME is not defined", { status: 500 });
-    }
-
-    if (R2_DOMAIN === undefined) {
-      return new Response("R2_DOMAIN is not defined", { status: 500 });
-    }
-    // need key, file type, and size
     const searchParams = request.nextUrl.searchParams;
     const fileName = searchParams.get("fileName");
     const fileType = searchParams.get("fileType");
@@ -63,7 +66,7 @@ export async function POST(request: NextRequest) {
           error:
             "Missing required parameters: fileName, fileType, and t are required",
         }),
-        { status: 400 }
+        { status: 400, headers: CORS_HEADERS }
       );
     }
 
@@ -78,14 +81,24 @@ export async function POST(request: NextRequest) {
       { expiresIn: 3600 }
     );
 
-    const resp = {
+    const resp: ApiResponse = {
       url: SignedUrl,
       imageUrl: `https://${R2_DOMAIN}/${fileName}`,
       error: "",
     };
-    return new Response(JSON.stringify(resp));
+
+    return new Response(JSON.stringify(resp), {
+      status: 200,
+      headers: CORS_HEADERS,
+    });
   } catch (error) {
-    return new Response("Error setting up S3 client", { status: 500 });
+    if (error instanceof Error) {
+      console.error(error.name, error.message);
+    }
+    return new Response("Error setting up S3 client", {
+      status: 500,
+      headers: CORS_HEADERS,
+    });
   }
 }
 
