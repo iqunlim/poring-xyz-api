@@ -7,4 +7,5 @@ interface CloudflareEnv {
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
   R2_DOMAIN: string;
+  IMAGES: R2Bucket;
 }
