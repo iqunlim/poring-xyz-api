@@ -12,12 +12,5 @@
       "binding": "IMAGES",
       "bucket_name": "poring-xyz"
     }
-  ],
-  "env": {
-    "production": {
-      "vars": {
-        "MAX_FILE_SIZE": 100
-      }
-    }
-  }
+  ]
 }

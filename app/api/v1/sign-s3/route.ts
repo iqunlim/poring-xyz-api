@@ -5,7 +5,7 @@ import mime from "mime";
 import { get } from "http";
 
 type ApiResponse = {
-  imageUrl?: string;
+  fileUrl?: string;
   error?: string;
 };
 
@@ -26,32 +26,32 @@ const CorsHeaders = {
 };
 
 const excludedFileExtensions = [
-  ".exe",
-  ".dll",
-  ".sh",
-  ".bat",
-  ".com",
-  ".py",
-  ".php",
-  ".pl",
-  ".jar",
-  ".lnk",
-  ".sys",
-  ".drv",
-  ".msi",
-  ".msp",
-  ".bin",
-  ".bash",
-  ".json",
-  ".class",
-  ".html",
-  ".htm",
-  ".js",
-  ".wav",
-  ".iso",
-  ".rar",
-  ".zip",
-  ".torrent",
+  "exe",
+  "dll",
+  "sh",
+  "bat",
+  "com",
+  "py",
+  "php",
+  "pl",
+  "jar",
+  "lnk",
+  "sys",
+  "drv",
+  "msi",
+  "msp",
+  "bin",
+  "bash",
+  "json",
+  "class",
+  "html",
+  "htm",
+  "js",
+  "wav",
+  "iso",
+  "rar",
+  "zip",
+  "torrent",
 ];
 
 const excludedMimeTypes = [
@@ -111,7 +111,6 @@ export async function POST(request: NextRequest) {
 async function ProcessRequest(request: NextRequest) {
   const bucket = getRequestContext().env.IMAGES;
   const R2_DOMAIN = getRequestContext().env.R2_DOMAIN;
-  const MAX_FILE_SIZE = getRequestContext().env.MAX_FILE_SIZE;
 
   // Bucket must exist
   if (!bucket || !R2_DOMAIN) {
@@ -162,9 +161,12 @@ async function ProcessRequest(request: NextRequest) {
     !fileExt ||
     !fileBlobExt ||
     !(fileExt === fileBlobExt) ||
-    excludedFileExtensions.includes(fileBlobExt)
+    excludedFileExtensions.includes(fileExt)
   ) {
-    throw new BucketError(400, "File name must have a valid extension");
+    throw new BucketError(
+      400,
+      `File name must have a valid extension: ${fileExt} , ${fileBlobExt}`
+    );
   }
 
   // Verify file extension matches sent file type in header
@@ -177,18 +179,16 @@ async function ProcessRequest(request: NextRequest) {
   }
 
   // Verify file size is less than MAX_FILE_SIZE
-  const contentLength = request.headers.get("content-length");
-  if (!contentLength || Number(contentLength) > MAX_FILE_SIZE * 1024 * 1024) {
-    throw new BucketError(
-      400,
-      `File size must be less than ${MAX_FILE_SIZE}MB`
-    );
-  }
+  // Note: The service itself we are running this on will handle this by throwing a 413 for too big of a file
+  // const contentLength = request.headers.get("content-length");
+  // if (!contentLength || Number(contentLength) > 100 * 1024 * 1024) {
+  //   throw new BucketError(400, `File size must be less than 100MB`);
+  // }
 
   // Generate file key
   const uploadKey = `${crypto.randomUUID().slice(0, 8)}/${fileName}`;
   const resp: ApiResponse = {
-    imageUrl: `https://${R2_DOMAIN}/${uploadKey}`,
+    fileUrl: `https://${R2_DOMAIN}/${uploadKey}`,
     error: "",
   };
 
