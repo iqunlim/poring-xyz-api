@@ -8,4 +8,5 @@ interface CloudflareEnv {
   R2_SECRET_ACCESS_KEY: string;
   R2_DOMAIN: string;
   IMAGES: R2Bucket;
+  MAX_FILE_SIZE: number;
 }

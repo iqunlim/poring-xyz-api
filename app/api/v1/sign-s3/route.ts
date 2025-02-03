@@ -18,35 +18,71 @@ class BucketError extends Error {
   }
 }
 
-const CORS_HEADERS = {
+const CorsHeaders = {
   "Content-Type": "application/json",
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
 
-const ALLOWED_EXTENSIONS = [
-  "png",
-  "jpg",
-  "jpeg",
-  "bmp",
-  "svg",
-  "jfif",
-  "pjpeg",
-  "pjp",
-  "gif",
-  "webp",
-  "avif",
-  "ico",
-  "apng",
-  "heif",
-  "heic",
+const excludedFileExtensions = [
+  ".exe",
+  ".dll",
+  ".sh",
+  ".bat",
+  ".com",
+  ".py",
+  ".php",
+  ".pl",
+  ".jar",
+  ".lnk",
+  ".sys",
+  ".drv",
+  ".msi",
+  ".msp",
+  ".bin",
+  ".bash",
+  ".json",
+  ".class",
+  ".html",
+  ".htm",
+  ".js",
+  ".wav",
+  ".iso",
+  ".rar",
+  ".zip",
+  ".torrent",
+];
+
+const excludedMimeTypes = [
+  "application/x-msdownload", // .exe, .dll
+  "application/x-sh", // .sh
+  "application/x-bat", // .bat
+  "application/x-msdos-program", // .com
+  "application/x-python", // .py
+  "application/x-php", // .php
+  "application/x-perl", // .pl
+  "application/x-java-archive", // .jar
+  "application/x-ms-shortcut", // .lnk
+  "application/x-msdos-windows", // .sys
+  "application/x-msdos-program", // .drv
+  "application/x-msi", // .msi, .msp
+  "application/octet-stream", // generic binary files
+  "text/x-shellscript", // .sh, .bash
+  "application/json", // sometimes restricted due to API security concerns
+  "application/x-dosexec", // Windows executable binaries
+  "application/x-httpd-php", // .php
+  "text/html", // .html, .htm (to prevent phishing attempts)
+  "application/javascript", // .js
+  "application/x-java", // .class
+  "application/iso", // .iso
+  "application/x-bittorrent", // .torrent
 ];
 
 // Respond with the CORS headers for the options query
-export async function OPTIONS(request: NextRequest) {
+export async function OPTIONS() {
   return new Response(null, {
-    headers: CORS_HEADERS,
+    headers: CorsHeaders,
   });
 }
 
@@ -67,15 +103,15 @@ export async function POST(request: NextRequest) {
       JSON.stringify({
         error: errorMsg,
       }),
-      { status: status, headers: CORS_HEADERS }
+      { status: status, headers: CorsHeaders }
     );
   }
 }
 
 async function ProcessRequest(request: NextRequest) {
-  const bucket = getRequestContext().env.IMAGES || "Test";
-  const R2_DOMAIN =
-    getRequestContext().env.R2_DOMAIN || "https://files2.iqun.xyz/";
+  const bucket = getRequestContext().env.IMAGES;
+  const R2_DOMAIN = getRequestContext().env.R2_DOMAIN;
+  const MAX_FILE_SIZE = getRequestContext().env.MAX_FILE_SIZE;
 
   // Bucket must exist
   if (!bucket || !R2_DOMAIN) {
@@ -113,19 +149,22 @@ async function ProcessRequest(request: NextRequest) {
     throw new BucketError(400, "No Body data or no file");
   }
 
+  // Verify MIME type is not excluded
+  if (excludedMimeTypes.includes(file.type)) {
+    throw new BucketError(400, "This file format is disallowed");
+  }
+
   // Verify file name is safe and has a valid extension
+  // And that its extension matches the MIME type (is this necessary...)
   const fileExt = fileName.split(".").pop();
   const fileBlobExt = mime.getExtension(file.type);
   if (
     !fileExt ||
     !fileBlobExt ||
     !(fileExt === fileBlobExt) ||
-    !ALLOWED_EXTENSIONS.includes(fileBlobExt)
+    excludedFileExtensions.includes(fileBlobExt)
   ) {
-    throw new BucketError(
-      400,
-      "File name must have a valid extension, currently this API only supports images"
-    );
+    throw new BucketError(400, "File name must have a valid extension");
   }
 
   // Verify file extension matches sent file type in header
@@ -137,11 +176,13 @@ async function ProcessRequest(request: NextRequest) {
     );
   }
 
-  // Verify file size is less than 20mb
+  // Verify file size is less than MAX_FILE_SIZE
   const contentLength = request.headers.get("content-length");
-  const MAX_SIZE = 20 * 1024 * 1024; // TODO: Make this an env variable
-  if (!contentLength || Number(contentLength) > MAX_SIZE) {
-    throw new BucketError(400, "File size must be less than 20mb");
+  if (!contentLength || Number(contentLength) > MAX_FILE_SIZE * 1024 * 1024) {
+    throw new BucketError(
+      400,
+      `File size must be less than ${MAX_FILE_SIZE}MB`
+    );
   }
 
   // Generate file key
@@ -156,10 +197,6 @@ async function ProcessRequest(request: NextRequest) {
 
   return new Response(JSON.stringify(resp), {
     status: 200,
-    headers: CORS_HEADERS,
+    headers: CorsHeaders,
   });
-}
-
-export async function GET(request: Request) {
-  return new Response("Valid endpoint");
 }
