@@ -13,7 +13,11 @@
       "bucket_name": "poring-xyz"
     }
   ],
-  "vars": {
-    "MAX_FILE_SIZE": 100
+  "env": {
+    "production": {
+      "vars": {
+        "MAX_FILE_SIZE": 100
+      }
+    }
   }
 }
