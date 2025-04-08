@@ -2,7 +2,7 @@ export const runtime = "edge";
 import { getRequestContext } from "@cloudflare/next-on-pages";
 import { NextRequest } from "next/server";
 import mime from "mime";
-import { get } from "http";
+import { checkExcludedTypes, checkFileExtension } from "./validators";
 
 type ApiResponse = {
   fileUrl?: string;
@@ -24,58 +24,6 @@ const CorsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type",
 };
-
-const excludedFileExtensions = [
-  "exe",
-  "dll",
-  "sh",
-  "bat",
-  "com",
-  "py",
-  "php",
-  "pl",
-  "jar",
-  "lnk",
-  "sys",
-  "drv",
-  "msi",
-  "msp",
-  "bin",
-  "bash",
-  "json",
-  "class",
-  "html",
-  "htm",
-  "js",
-  "wav",
-  "iso",
-  "torrent",
-];
-
-const excludedMimeTypes = [
-  "application/x-msdownload", // .exe, .dll
-  "application/x-sh", // .sh
-  "application/x-bat", // .bat
-  "application/x-msdos-program", // .com
-  "application/x-python", // .py
-  "application/x-php", // .php
-  "application/x-perl", // .pl
-  "application/x-java-archive", // .jar
-  "application/x-ms-shortcut", // .lnk
-  "application/x-msdos-windows", // .sys
-  "application/x-msdos-program", // .drv
-  "application/x-msi", // .msi, .msp
-  "application/octet-stream", // generic binary files
-  "text/x-shellscript", // .sh, .bash
-  "application/json", // sometimes restricted due to API security concerns
-  "application/x-dosexec", // Windows executable binaries
-  "application/x-httpd-php", // .php
-  "text/html", // .html, .htm (to prevent phishing attempts)
-  "application/javascript", // .js
-  "application/x-java", // .class
-  "application/iso", // .iso
-  "application/x-bittorrent", // .torrent
-];
 
 // Respond with the CORS headers for the options query
 export async function OPTIONS() {
@@ -119,8 +67,8 @@ async function ProcessRequest(request: NextRequest) {
   }
 
   const searchParams = request.nextUrl.searchParams;
-  const fileName = searchParams.get("fileName");
-  const fileType = searchParams.get("fileType");
+  const fileName = decodeURIComponent(searchParams.get("fileName") || "");
+  const fileType = decodeURIComponent(searchParams.get("fileType") || "");
 
   // Require all params
   if (!fileName || !fileType) {
@@ -147,8 +95,8 @@ async function ProcessRequest(request: NextRequest) {
   }
 
   // Verify MIME type is not excluded
-  if (excludedMimeTypes.includes(file.type)) {
-    throw new BucketError(400, "This file format is disallowed");
+  if (!checkExcludedTypes(fileType)) {
+    throw new BucketError(400, `This file format is disallowed, ${fileType}`);
   }
 
   // Verify file name is safe and has a valid extension
@@ -157,17 +105,14 @@ async function ProcessRequest(request: NextRequest) {
   // REmoving this vadidator for now
   // const fileExt = fileName.split(".").pop();
   // const fileBlobExt = mime.getExtension(file.type);
-  // if (
-  //   !fileExt ||
-  //   !fileBlobExt ||
-  //   !(fileExt === fileBlobExt) ||
-  //   excludedFileExtensions.includes(fileExt)
-  // ) {
-  //   throw new BucketError(
-  //     400,
-  //     `File name must have a valid extension: ${fileExt} , ${fileBlobExt}`
-  //   );
-  // }
+  if (!checkFileExtension(fileName)) {
+    throw new BucketError(
+      400,
+      `File name must have a valid extension: ${fileName}, FileType Sent: ${fileName.substring(
+        fileName.indexOf(".") + 1
+      )}`
+    );
+  }
 
   // Verify file extension matches sent file type in header
   // const mimeType = mime.getType(fileExt);
