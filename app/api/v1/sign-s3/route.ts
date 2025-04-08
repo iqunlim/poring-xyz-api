@@ -49,8 +49,6 @@ const excludedFileExtensions = [
   "js",
   "wav",
   "iso",
-  "rar",
-  "zip",
   "torrent",
 ];
 
@@ -155,28 +153,30 @@ async function ProcessRequest(request: NextRequest) {
 
   // Verify file name is safe and has a valid extension
   // And that its extension matches the MIME type (is this necessary...)
-  const fileExt = fileName.split(".").pop();
-  const fileBlobExt = mime.getExtension(file.type);
-  if (
-    !fileExt ||
-    !fileBlobExt ||
-    !(fileExt === fileBlobExt) ||
-    excludedFileExtensions.includes(fileExt)
-  ) {
-    throw new BucketError(
-      400,
-      `File name must have a valid extension: ${fileExt} , ${fileBlobExt}`
-    );
-  }
+  // This was causing errors with a HUGE variety of MIME types due to changes to the library
+  // REmoving this vadidator for now
+  // const fileExt = fileName.split(".").pop();
+  // const fileBlobExt = mime.getExtension(file.type);
+  // if (
+  //   !fileExt ||
+  //   !fileBlobExt ||
+  //   !(fileExt === fileBlobExt) ||
+  //   excludedFileExtensions.includes(fileExt)
+  // ) {
+  //   throw new BucketError(
+  //     400,
+  //     `File name must have a valid extension: ${fileExt} , ${fileBlobExt}`
+  //   );
+  // }
 
   // Verify file extension matches sent file type in header
-  const mimeType = mime.getType(fileExt);
-  if (mimeType !== fileType) {
-    throw new BucketError(
-      400,
-      "File type does not match file extension sent in header"
-    );
-  }
+  // const mimeType = mime.getType(fileExt);
+  // if (mimeType !== fileType) {
+  //   throw new BucketError(
+  //     400,
+  //     "File type does not match file extension sent in header"
+  //   );
+  // }
 
   // Verify file size is less than MAX_FILE_SIZE
   // Note: The service itself we are running this on will handle this by throwing a 413 for too big of a file
